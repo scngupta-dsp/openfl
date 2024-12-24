@@ -683,7 +683,7 @@ if __name__ == "__main__":
         )
 
     local_runtime = LocalRuntime(
-        aggregator=aggregator, collaborators=collaborators, backend="single_process")
+        aggregator=aggregator, collaborators=collaborators, backend="ray")
     print(f"Local runtime collaborators = {local_runtime.collaborators}")
 
     best_model = None

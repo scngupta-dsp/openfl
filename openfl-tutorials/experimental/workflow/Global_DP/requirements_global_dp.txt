@@ -3,6 +3,6 @@ matplotlib==3.6.0
 numpy==1.23.3
 pillow==10.3.0
 pyyaml==6.0
-torch==1.13.1
-torchvision==0.14.1
+torch==1.12.1
+torchvision==0.13.1
 opacus==1.2.0
