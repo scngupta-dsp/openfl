@@ -33,14 +33,18 @@ learning_rate = 0.01
 momentum = 0.5
 log_interval = 10
 
+# Fixing the seed for result repeatation: remove below to stop repeatable runs
 random_seed = 5495300300540669060
 
-g_device = torch.Generator(device="cuda")
-# Uncomment the line below to use g_cpu if not using cuda
-# g_device = torch.Generator() # noqa: E800
-# NOTE: remove below to stop repeatable runs
+# Determine the device to use (CUDA if available, otherwise CPU)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Create a generator for the specified device
+g_device = torch.Generator(device=device)
+
+# Set the seed for the generator
 g_device.manual_seed(random_seed)
-print(f"\n\nWe are using seed: {random_seed}")
+print(f"\n\nWe are using seed: {random_seed} on device: {device}")
 
 mnist_train = torchvision.datasets.MNIST(
     "files/",
@@ -77,11 +81,10 @@ class GlobalModelTools(object):
     """
 
     def __init__(
-        self, example_model_state, global_model, collaborator_names, dp_params=None
+        self, example_model_state, global_model, num_collaborators, dp_params=None
     ):
         self.example_state = example_model_state
         self.global_model = global_model
-        self.collaborator_names = collaborator_names
         self.global_optimizer = torch.optim.SGD(
             params=self.global_model.parameters(), lr=1.0
         )  # This choice of optimizer is required for correct model aggregation
@@ -95,10 +98,8 @@ class GlobalModelTools(object):
         else:
             sample_rate = dp_params["sample_rate"]
         self.global_data_loader = torch.utils.data.DataLoader(
-            TensorDataset(
-                torch.Tensor(list(range(len(self.collaborator_names)))).to(torch.int)
-            ),
-            batch_size=int(sample_rate * float(len(collaborator_names))),
+            TensorDataset(torch.Tensor(list(range(num_collaborators))).to(torch.int)),
+            batch_size=int(sample_rate * float(num_collaborators)),
             shuffle=True,
         )
         if dp_params is not None:
@@ -112,6 +113,13 @@ class GlobalModelTools(object):
                 data_loader=self.global_data_loader,
                 noise_multiplier=dp_params["noise_multiplier"],
                 max_grad_norm=dp_params["clip_norm"],
+            )
+            # NOTE: Added to migrate to torch 2.x versions
+            self.global_optimizer._optimizer_step_pre_hooks = (
+                self.global_optimizer.original_optimizer._optimizer_step_pre_hooks
+            )
+            self.global_optimizer._optimizer_step_post_hooks = (
+                self.global_optimizer.original_optimizer._optimizer_step_post_hooks
             )
 
     def populate_model_params_and_gradients(
@@ -223,7 +231,7 @@ def inference(network, test_loader, device):
             correct += pred.eq(target.data.view_as(pred)).sum()
     test_loss /= len(test_loader.dataset)
     print(
-        "\nTest set: Avg. loss: {test_loss:.4f},"
+        f"\nTest set: Avg. loss: {test_loss:.4f},"
         f" Accuracy: {correct}/{len(test_loader.dataset)}"
         f" ({(100.0 * correct / len(test_loader.dataset)):.0f})\n"
     )
@@ -338,12 +346,6 @@ class FederatedFlow(FLSpec):
             self.dp_params = config["differential_privacy"]
             print(f"Here are dp_params: {self.dp_params}")
             validate_dp_params(self.dp_params)
-        self.global_model_tools = GlobalModelTools(
-            global_model=self.global_model,
-            example_model_state=self.model.state_dict(),
-            collaborator_names=self.collaborator_names,
-            dp_params=self.dp_params,
-        )
 
     @aggregator
     def start(self):
@@ -596,11 +598,8 @@ if __name__ == "__main__":
     else:
         device = torch.device("cpu")
 
-    # Setup participants
-    # Set `num_gpus=0.09` to `num_gpus=0.0` in order to run this tutorial on CPU
-    aggregator = Aggregator(num_gpus=0.09)
-
-    # Setup collaborators with private attributes
+    ###### Setup participants in Federation ######
+    # Define collaborators
     collaborator_names = [
         "Portland",
         "Seattle",
@@ -614,9 +613,45 @@ if __name__ == "__main__":
         "Guadalajara",
     ]
 
+    def callable_to_initialize_aggregator_private_attributes(
+        path, global_model, model, num_collaborators
+    ):
+        """Callable to initialize aggregator private attributes"""
+
+        config = parse_config(path)
+
+        if "differential_privacy" not in config:
+            dp_params = None
+        else:
+            dp_params = config["differential_privacy"]
+            print(f"Here are dp_params: {dp_params}")
+            validate_dp_params(dp_params)
+
+        return {
+            "global_model_tools": GlobalModelTools(
+                global_model=global_model,
+                example_model_state=model.state_dict(),
+                num_collaborators=num_collaborators,
+                dp_params=dp_params,
+            )
+        }
+
+    # Set `num_gpus=0.09` to `num_gpus=0.0` in order to run this tutorial on CPU
+    aggregator = Aggregator(
+        name="agg",
+        private_attributes_callable=callable_to_initialize_aggregator_private_attributes,
+        num_cpus=0.0,
+        num_gpus=0.0,
+        path=args.config_path,
+        global_model=Net(),
+        model=Net(),
+        num_collaborators=len(collaborator_names),
+    )
+
     def callable_to_initialize_collaborator_private_attributes(
         index, n_collaborators, batch_size, train_dataset, test_dataset
     ):
+        """Callable to initialize collaborator private attributes"""        
         train = deepcopy(train_dataset)
         test = deepcopy(test_dataset)
         train.data = train_dataset.data[index::n_collaborators]
@@ -633,6 +668,7 @@ if __name__ == "__main__":
             ),
         }
 
+    # Setup collaborators with private attributes
     collaborators = []
     for idx, collaborator_name in enumerate(collaborator_names):
         collaborators.append(
@@ -641,7 +677,7 @@ if __name__ == "__main__":
                 private_attributes_callable=callable_to_initialize_collaborator_private_attributes,
                 # Set `num_gpus=0.09` to `num_gpus=0.0` in order to run this tutorial on CPU
                 num_cpus=0.0,
-                num_gpus=0.09,  # Assuming GPU(s) is available in the machine
+                num_gpus=0.0,  # Assuming GPU(s) is available in the machine
                 index=idx,
                 n_collaborators=len(collaborator_names),
                 batch_size=batch_size_train,
