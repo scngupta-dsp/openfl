@@ -316,7 +316,7 @@ def parse_config(config_path):
 class FederatedFlow(FLSpec):
     def __init__(
         self,
-        config_path,
+        dp_params,
         model,
         collaborator_names,
         device,
@@ -337,15 +337,7 @@ class FederatedFlow(FLSpec):
         # we will set this attribute at the beginning of each round (tracks using
         # indices against the collaborator list)
         self.round_collaborator_idxs = None
-
-        config = parse_config(config_path)
-
-        if "differential_privacy" not in config:
-            self.dp_params = None
-        else:
-            self.dp_params = config["differential_privacy"]
-            print(f"Here are dp_params: {self.dp_params}")
-            validate_dp_params(self.dp_params)
+        self.dp_params = dp_params
 
     @aggregator
     def start(self):
@@ -380,7 +372,7 @@ class FederatedFlow(FLSpec):
                 }
 
         print("\n\n" + 20 * "#")
-        print("Round {self.round}...")
+        print(f"Round {self.round}...")
         print("Training with collaborators: ", self.round_collaborators)
         print(20 * "#" + "\n\n")
 
@@ -598,6 +590,15 @@ if __name__ == "__main__":
     else:
         device = torch.device("cpu")
 
+    config = parse_config(args.config_path)
+
+    if "differential_privacy" not in config:
+        dp_params = None
+    else:
+        dp_params = config["differential_privacy"]
+        print(f"Here are dp_params: {dp_params}")
+        validate_dp_params(dp_params)
+
     ###### Setup participants in Federation ######
     # Define collaborators
     collaborator_names = [
@@ -614,18 +615,9 @@ if __name__ == "__main__":
     ]
 
     def callable_to_initialize_aggregator_private_attributes(
-        path, global_model, model, num_collaborators
+        dp_params, global_model, model, num_collaborators
     ):
         """Callable to initialize aggregator private attributes"""
-
-        config = parse_config(path)
-
-        if "differential_privacy" not in config:
-            dp_params = None
-        else:
-            dp_params = config["differential_privacy"]
-            print(f"Here are dp_params: {dp_params}")
-            validate_dp_params(dp_params)
 
         return {
             "global_model_tools": GlobalModelTools(
@@ -633,7 +625,7 @@ if __name__ == "__main__":
                 example_model_state=model.state_dict(),
                 num_collaborators=num_collaborators,
                 dp_params=dp_params,
-            )
+            ),
         }
 
     # Set `num_gpus=0.09` to `num_gpus=0.0` in order to run this tutorial on CPU
@@ -642,7 +634,7 @@ if __name__ == "__main__":
         private_attributes_callable=callable_to_initialize_aggregator_private_attributes,
         num_cpus=0.0,
         num_gpus=0.0,
-        path=args.config_path,
+        dp_params=dp_params,
         global_model=Net(),
         model=Net(),
         num_collaborators=len(collaborator_names),
@@ -687,8 +679,7 @@ if __name__ == "__main__":
         )
 
     local_runtime = LocalRuntime(
-        aggregator=aggregator, collaborators=collaborators, backend="ray"
-    )
+        aggregator=aggregator, collaborators=collaborators, backend="ray")
     print(f"Local runtime collaborators = {local_runtime.collaborators}")
 
     best_model = None
@@ -697,7 +688,7 @@ if __name__ == "__main__":
     total_rounds = 10
 
     flflow = FederatedFlow(
-        config_path=args.config_path,
+        dp_params=dp_params,
         model=initial_model,
         collaborator_names=collaborator_names,
         device=device,
