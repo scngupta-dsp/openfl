@@ -1,0 +1,75 @@
+(Aggregator pid=274254) Saved data artifacts for end
+run_id: 1743165287552600
+Step('TestFlow/1743165287552600/train')
+Task('TestFlow/1743165287552600/train/3')
+SGD (
+Parameter Group 0
+    dampening: 0
+    differentiable: False
+    foreach: None
+    fused: None
+    lr: 0.01
+    maximize: False
+    momentum: 0.5
+    nesterov: False
+    weight_decay: 0
+)
+Net(
+  (conv1): Conv2d(1, 10, kernel_size=(5, 5), stride=(1, 1))
+  (conv2): Conv2d(10, 20, kernel_size=(5, 5), stride=(1, 1))
+  (conv2_drop): Dropout2d(p=0.5, inplace=False)
+  (fc1): Linear(in_features=320, out_features=50, bias=True)
+  (fc2): Linear(in_features=50, out_features=10, bias=True)
+)
+
+$ python
+Python 3.11.11 | packaged by conda-forge | (main, Mar  3 2025, 20:43:55) [GCC 13.3.0] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+>>> from metaflow import Metaflow, Flow, Task, Step
+>>> m=Metaflow()
+>>> list(m)
+[Flow('TestFlow')]
+>>> f=Flow('TestFlow')
+>>> list(f)
+[Run('TestFlow/1743165287552600'), Run('TestFlow/1743163899162192')]
+>>> f.latest_run
+Run('TestFlow/1743165287552600')
+>>> f=Flow('TestFlow').latest_run
+>>> list(f)
+[Step('TestFlow/1743165287552600/end'), Step('TestFlow/1743165287552600/join'), Step('TestFlow/1743165287552600/local_model_validation'), Step('TestFlow/1743165287552600/train'), Step('TestFlow/1743165287552600/aggregated_model_validation'), Step('TestFlow/1743165287552600/start')]
+>>> s=Step('TestFlow/1743165287552600/train')
+>>> list(s)
+[Task('TestFlow/1743165287552600/train/13'), Task('TestFlow/1743165287552600/train/10'), Task('TestFlow/1743165287552600/train/6'), Task('TestFlow/1743165287552600/train/3')]
+>>> t=Task('TestFlow/1743165287552600/train/3')
+>>> t.data
+<MetaflowData: train_loader, model, training_completed, current_round, collaborators, test_loader, execute_task_args, checkpoint, input, agg_validation_score, optimizer, rounds, loss>
+>>> t.data.optimizer
+t.daSGD (
+Parameter Group 0
+    dampening: 0
+    differentiable: False
+    foreach: None
+    fused: None
+    lr: 0.01
+    maximize: False
+    momentum: 0.5
+    nesterov: False
+    weight_decay: 0
+)
+>>> t.data.model
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/home/scngupta/miniforge-pypy3/envs/env_scngupta_fets/lib/python3.11/site-packages/metaflow/client/core.py", line 736, in __getattr__
+    return self._artifacts[name].data
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scngupta/miniforge-pypy3/envs/env_scngupta_fets/lib/python3.11/site-packages/metaflow/client/core.py", line 905, in data
+    obj = filecache.get_artifact(ds_type, location[6:], meta, *components)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scngupta/miniforge-pypy3/envs/env_scngupta_fets/lib/python3.11/site-packages/metaflow/client/filecache.py", line 205, in get_artifact
+    _, obj = next(
+             ^^^^^
+  File "/home/scngupta/miniforge-pypy3/envs/env_scngupta_fets/lib/python3.11/site-packages/metaflow/datastore/task_datastore.py", line 370, in load_artifacts
+    yield name, pickle.loads(blob)
+                ^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'test_utilities'
+>>>
