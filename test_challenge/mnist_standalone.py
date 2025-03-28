@@ -220,6 +220,6 @@ if __name__ == "__main__":
     model = None
     best_model = None
     optimizer = None
-    flflow = TestFlow(model, optimizer, rounds=2, checkpoint=False)
+    flflow = TestFlow(model, optimizer, rounds=2, checkpoint=True)
     flflow.runtime = local_runtime
     flflow.run()

@@ -220,6 +220,21 @@ def run_experiment():
     model = None
     best_model = None
     optimizer = None
-    flflow = TestFlow(model, optimizer, rounds=2, checkpoint=False)
+    flflow = TestFlow(model, optimizer, rounds=2, checkpoint=True)
     flflow.runtime = local_runtime
     flflow.run()
+
+    # from metaflow import Metaflow, Flow, Task, Step
+
+    # m=Metaflow()
+    # f=Flow('TestFlow').latest_run
+    # run_id = flflow._run_id
+    # print(f"run_id: {run_id}")
+    # s = Step(f'TestFlow/{run_id}/train')
+    # print(s)
+    # t = Task(f'TestFlow/{run_id}/train/3')
+    # print(t)
+    # print(t.data.optimizer)
+    # print(t.data.model)
+
+    return flflow
