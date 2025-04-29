@@ -334,9 +334,6 @@ class FLSpec:
         parent = inspect.stack()[1][3]
         parent_func = getattr(self, parent)
 
-        if str(self._runtime) == "LocalRuntime":
-            # Checkpoint current attributes (if checkpoint==True)
-            checkpoint(self, parent_func)
 
         # Take back-up of current state of self
         agg_to_collab_ss = None
