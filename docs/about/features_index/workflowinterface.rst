@@ -217,7 +217,6 @@ In rare cases this can be a problem because certain python objects cannot be ser
 
     local_runtime = LocalRuntime(aggregator=aggregator_, collaborators=collaborators)
 
-
 Participant *private attributes* are returned by the callback function in form of a dictionary, where the key is the name of the attribute and the value is the object. In this example callback function :code:`callable_to_initialize_collaborator_private_attributes()` returns :code:`train_loader` and :code:`test_loader` in the form of a dictionary.
 
 **Note:** If both callable and private attributes are provided, the initialization will prioritize the private attributes through the :code:`callable` function.
@@ -236,6 +235,9 @@ Some important points to remember while creating callback function and private a
     - If no Callback Function or private attributes is specified then the Participant shall not have any *private attributes*
     - In above example multiple collaborators have the same callback function or private attributes. Depending on the Federated Learning requirements, user can specify unique callback function or private attributes for each Participant
     - *Private attributes* needs to be set after instantiating the participant.
+    - **Known Limitations**: When using a `callable` to initialize *private attributes* that are **not serializable**, users should be aware of following limitations:
+        * `checkpoint` should not be enabled with `LocalRuntime`. Users should ensure that default (disabled) setting of checkpoint is used or it is explicitly disabled :code:`flow = FederatedFlow( ..., checkpoint = false)`
+        * filtering of attributes (via `include` or `exclude`) cannot be used during the  transition from aggregator step to collaborator steps. The flow logic must be updated to avoid filtering in steps that transition control from aggregator to collaborators
 
 Now let's see how the runtime for a flow is assigned, and the flow gets run:
 
