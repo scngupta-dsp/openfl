@@ -17,6 +17,65 @@ from openfl.experimental.workflow.transport.grpc.grpc_channel_options import cha
 
 logger = logging.getLogger(__name__)
 
+def reassemble_chunks_task_results(chunk_stream):
+    """Reassemble chunks from a stream into a single byte array."""
+    npbytes = bytearray()
+    request_metadata = None
+
+    for chunk in chunk_stream:
+        if request_metadata is None:
+            try:
+                request_metadata = aggregator_pb2.TaskResultsRequest()
+                request_metadata.ParseFromString(chunk.chunk)
+                print("TaskResultRequest: Parsed request metadata successfully.")
+            except Exception as e:
+                print(f"TaskResultRequest: Error parsing request metadata: {e}")
+                raise
+        else:
+            npbytes.extend(chunk.chunk)
+    
+    return request_metadata, bytes(npbytes) if npbytes else None
+
+def reassemble_chunks_call_checkpoint(request_iterator):
+    """Reassemble the chunks from the request iterator.
+
+    Args:
+        request_iterator: The iterator of streamed chunks.
+
+    Returns:
+        Tuple containing request metadata, execution environment, function, and stream buffer.
+    """
+    request_data = b''
+    execution_environment = b''
+    function = b''
+    stream_buffer = b''
+
+    is_metadata_processed = False
+
+    # Process the incoming chunks
+    chunk_index = 0
+    for chunk in request_iterator:
+        if not is_metadata_processed:
+            request_metadata = aggregator_pb2.CheckpointRequest()
+            request_metadata.ParseFromString(chunk.chunk)
+            is_metadata_processed = True
+        else:
+            chunk_index = chunk_index + 1
+            if (chunk_index % 128 == 0):
+                print(f"****** Received chunk index: {chunk_index}")
+            request_data += chunk.chunk
+
+    # Use the sizes from the metadata to split the byte stream
+    execution_environment_size = request_metadata.execution_environment_size
+    function_size = request_metadata.function_size
+    stream_buffer_size = request_metadata.stream_buffer_size
+    print(f"Received: execution_environment_size = {execution_environment_size}, function_size = {function_size}, stream_buffer_size = {stream_buffer_size}")
+
+    execution_environment = request_data[:execution_environment_size]
+    function = request_data[execution_environment_size:execution_environment_size + function_size]
+    stream_buffer = request_data[execution_environment_size + function_size:execution_environment_size + function_size + stream_buffer_size]
+
+    return request_metadata, execution_environment, function, stream_buffer
 
 class AggregatorGRPCServer(aggregator_pb2_grpc.AggregatorServicer):
     """GRPC server class for the Aggregator."""
@@ -134,12 +193,13 @@ class AggregatorGRPCServer(aggregator_pb2_grpc.AggregatorServicer):
             request: The gRPC message request
             context: The gRPC context
         """
-        self.validate_collaborator(request, context)
-        self.check_request(request)
-        collaborator_name = request.header.sender
-        round_number = (request.round_number,)
-        next_step = (request.next_step,)
-        execution_environment = request.execution_environment
+        request_metadata, execution_environment = reassemble_chunks_task_results(request)
+
+        self.validate_collaborator(request_metadata, context)
+        self.check_request(request_metadata)
+        collaborator_name = request_metadata.header.sender
+        round_number = (request_metadata.round_number,)
+        next_step = (request_metadata.next_step,)
 
         _ = self.aggregator.send_task_results(
             collaborator_name, round_number[0], next_step, execution_environment
@@ -160,14 +220,36 @@ class AggregatorGRPCServer(aggregator_pb2_grpc.AggregatorServicer):
 
         rn, f, ee, st, q = self.aggregator.get_tasks(request.header.sender)
 
-        return aggregator_pb2.GetTasksResponse(
+        # return aggregator_pb2.GetTasksResponse(
+        #     header=self.get_header(collaborator_name),
+        #     round_number=rn,
+        #     function_name=f,
+        #     execution_environment=ee,
+        #     sleep_time=st,
+        #     quit=q,
+        # )
+        ee_bytes = ee
+        if ee is None:
+            ee_bytes = b''
+            
+        # Build the GetTasksResponse
+        response = aggregator_pb2.GetTasksResponse(
             header=self.get_header(collaborator_name),
             round_number=rn,
             function_name=f,
-            execution_environment=ee,
+            execution_environment=b'',
             sleep_time=st,
-            quit=q,
+            quit=q
         )
+
+        # Send the GetTasksResponse metadata first
+        yield aggregator_pb2.GetTasksResponseChunk(chunk=response.SerializeToString())
+
+        # Split the serialized large object into chunks and stream them
+        chunk_size = 2* 1024 * 1024  # 1 MB
+        for i in range(0, len(ee_bytes), chunk_size):
+            chunk = ee_bytes[i:i + chunk_size]
+            yield aggregator_pb2.GetTasksResponseChunk(chunk=chunk)        
 
     def CallCheckpoint(self, request, context):  # NOQA:N802
         """Request aggregator to perform a checkpoint for a given function.
@@ -176,12 +258,14 @@ class AggregatorGRPCServer(aggregator_pb2_grpc.AggregatorServicer):
             request: The gRPC message request
             context: The gRPC context
         """
-        self.validate_collaborator(request, context)
-        self.check_request(request)
-        collaborator_name = request.header.sender
-        execution_environment = request.execution_environment
-        function = request.function
-        stream_buffer = request.stream_buffer
+        request_metadata, execution_environment, function, stream_buffer = reassemble_chunks_call_checkpoint(request)
+
+        self.validate_collaborator(request_metadata, context)
+        self.check_request(request_metadata)
+        collaborator_name = request_metadata.header.sender
+        # execution_environment = request.execution_environment
+        # function = request_metadata.function
+        # stream_buffer = request_metadata.stream_buffer
 
         self.aggregator.call_checkpoint(
             collaborator_name, execution_environment, function, stream_buffer
