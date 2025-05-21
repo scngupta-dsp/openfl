@@ -203,6 +203,7 @@ class Collaborator:
             f = getattr(ctx, f_name)
             f()
             # Checkpoint the function
+            print(f"****** Calling Chckpoint *****")
             self.__delete_private_attrs_from_clone(ctx, "Private attributes: Not Available.")
             self.call_checkpoint(ctx, f, f._stream_buffer)
             self.__set_private_attrs_to_clone(ctx)

@@ -12,8 +12,10 @@ import grpc
 
 from openfl.experimental.workflow.protocols import aggregator_pb2, aggregator_pb2_grpc
 from openfl.experimental.workflow.transport.grpc.grpc_channel_options import channel_options
+from openfl.experimental.workflow.transport.grpc.utils import reassemble_chunks, stream_large_object
 
-
+import dill
+      
 class ConstantBackoff:
     """Constant Backoff policy."""
 
@@ -272,19 +274,23 @@ class AggregatorGRPCClient:
     def send_task_results(self, collaborator_name, round_number, next_step, clone_bytes):
         """Send next function name to aggregator."""
         self._set_header(collaborator_name)
-        request = aggregator_pb2.TaskResultsRequest(
-            header=self.header,
-            collab_name=collaborator_name,
-            round_number=round_number,
-            next_step=next_step,
-            execution_environment=clone_bytes,
-        )
 
-        response = self.stub.SendTaskResults(request)
+        request_metadata = aggregator_pb2.TaskResultsRequest(
+                    header=self.header,
+                    collab_name=collaborator_name,
+                    round_number=round_number,
+                    next_step=next_step,
+                    execution_environment=b''  # Placeholder for the large object
+                )
+
+        # Stream the request metadata and serialized large object in chunks
+        request_iterator = stream_large_object(request_metadata, [clone_bytes], aggregator_pb2.Chunk)
+        response = self.stub.SendTaskResults(request_iterator)
+
         self.validate_response(response, collaborator_name)
 
         return response.header
-
+ 
     @_atomic_connection
     @_resend_data_on_reconnection
     def get_tasks(self, collaborator_name):
@@ -292,13 +298,19 @@ class AggregatorGRPCClient:
         self._set_header(collaborator_name)
         request = aggregator_pb2.GetTasksRequest(header=self.header)
 
-        response = self.stub.GetTasks(request)
+        # response = self.stub.GetTasks(request)
+        response_stream = self.stub.GetTasks(request)
+        response, execution_environment = reassemble_chunks(response_stream, aggregator_pb2.GetTasksResponse)        
+
         self.validate_response(response, collaborator_name)
+
+        if not execution_environment:
+            execution_environment = None
 
         return (
             response.round_number,
             response.function_name,
-            response.execution_environment,
+            execution_environment,
             response.sleep_time,
             response.quit,
         )
@@ -309,14 +321,25 @@ class AggregatorGRPCClient:
         """Perform checkpoint for collaborator task."""
         self._set_header(collaborator_name)
 
-        request = aggregator_pb2.CheckpointRequest(
+        print(f"****** Checkpoint called from: {collaborator_name}")
+        print(f"execution_environment_size={len(clone_bytes)/(1024*1024)} MB, function_size={len(function)/(1024*1024)} MB, stream_buffer_size={len(stream_buffer)/(1024*1024)} MB")
+        print(f"stream_buffer contents: {dill.loads(stream_buffer)}")
+
+        # Create the initial request metadata with sizes
+        request_metadata = aggregator_pb2.CheckpointRequest(
             header=self.header,
-            execution_environment=clone_bytes,
-            function=function,
-            stream_buffer=stream_buffer,
+            execution_environment=b'',  # Placeholder
+            function=b'',               # Placeholder
+            stream_buffer=b'',          # Placeholder
+            execution_environment_size=len(clone_bytes),
+            function_size=len(function),
+            stream_buffer_size=len(stream_buffer)
         )
 
-        response = self.stub.CallCheckpoint(request)
+        # Create the request iterator that streams the large objects
+        large_objects = [clone_bytes, function, stream_buffer]
+        request_iterator = stream_large_object(request_metadata, large_objects, aggregator_pb2.Chunk)
+        response = self.stub.CallCheckpoint(request_iterator)
         self.validate_response(response, collaborator_name)
 
         return response.header

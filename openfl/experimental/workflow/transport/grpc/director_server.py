@@ -326,7 +326,22 @@ class DirectorGRPCServer(director_pb2_grpc.DirectorServicer):
             director_pb2.GetFlowStateResponse: The response to the request.
         """
         status, flspec_obj = await self.director.get_flow_state()
-        return director_pb2.GetFlowStateResponse(completed=status, flspec_obj=flspec_obj)
+
+        # Build the GetFlowStateResponse metadata
+        response_metadata = director_pb2.GetFlowStateResponse(
+            completed=status,
+            flspec_obj=b''  # Placeholder for the large object
+        )
+
+        # Send the GetFlowStateResponse metadata first
+        await context.write(director_pb2.Chunk(chunk=response_metadata.SerializeToString()))
+
+        # Split the serialized large object into chunks and stream them if not empty
+        if flspec_obj:
+            chunk_size = 16 * 1024 * 1024  # 1 MB
+            for i in range(0, len(flspec_obj), chunk_size):
+                chunk = flspec_obj[i:i + chunk_size]
+                await context.write(director_pb2.Chunk(chunk=chunk))
 
     async def GetExperimentStdout(
         self, request, context

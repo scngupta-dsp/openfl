@@ -9,9 +9,13 @@ import "openfl/protocols/base.proto";
 
 
 service Aggregator {
-  rpc SendTaskResults(TaskResultsRequest) returns (TaskResultsResponse) {}
-  rpc GetTasks(GetTasksRequest) returns (GetTasksResponse) {}
-  rpc CallCheckpoint(CheckpointRequest) returns (CheckpointResponse) {}
+  rpc SendTaskResults(stream Chunk) returns (TaskResultsResponse) {}
+  rpc GetTasks(GetTasksRequest) returns (stream Chunk) {}
+  rpc CallCheckpoint(stream Chunk) returns (CheckpointResponse) {}
+}
+
+message Chunk {
+  bytes chunk = 1;
 }
 
 message MessageHeader {
@@ -51,6 +55,9 @@ message CheckpointRequest {
   bytes execution_environment = 2;
   bytes function = 3;
   bytes stream_buffer = 4;
+  int64 execution_environment_size = 5;
+  int64 function_size = 6;
+  int64 stream_buffer_size = 7;
 }
 
 message CheckpointResponse {
