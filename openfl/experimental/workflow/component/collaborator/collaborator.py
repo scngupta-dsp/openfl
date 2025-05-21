@@ -204,9 +204,9 @@ class Collaborator:
             f()
             # Checkpoint the function
             print(f"****** Calling Chckpoint *****")
-            self.__delete_private_attrs_from_clone(ctx, "Private attributes: Not Available.")
-            self.call_checkpoint(ctx, f, f._stream_buffer)
-            self.__set_private_attrs_to_clone(ctx)
+            # self.__delete_private_attrs_from_clone(ctx, "Private attributes: Not Available.")
+            # self.call_checkpoint(ctx, f, f._stream_buffer)
+            # self.__set_private_attrs_to_clone(ctx)
 
             _, f, parent_func = ctx.execute_task_args[:3]
             # Display transition logs if transition

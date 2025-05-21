@@ -334,14 +334,14 @@ class DirectorGRPCServer(director_pb2_grpc.DirectorServicer):
         )
 
         # Send the GetFlowStateResponse metadata first
-        await context.write(director_pb2.GetFlowStateResponseChunk(chunk=response_metadata.SerializeToString()))
+        await context.write(director_pb2.Chunk(chunk=response_metadata.SerializeToString()))
 
         # Split the serialized large object into chunks and stream them if not empty
         if flspec_obj:
-            chunk_size = 2* 1024 * 1024  # 1 MB
+            chunk_size = 16 * 1024 * 1024  # 1 MB
             for i in range(0, len(flspec_obj), chunk_size):
                 chunk = flspec_obj[i:i + chunk_size]
-                await context.write(director_pb2.GetFlowStateResponseChunk(chunk=chunk))
+                await context.write(director_pb2.Chunk(chunk=chunk))
 
     async def GetExperimentStdout(
         self, request, context

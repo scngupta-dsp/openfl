@@ -12,24 +12,11 @@ from grpc._channel import _MultiThreadedRendezvous as DataStream
 
 from openfl.experimental.workflow.protocols import director_pb2, director_pb2_grpc
 from openfl.experimental.workflow.transport.grpc.exceptions import EnvoyNotFoundError
+from openfl.experimental.workflow.transport.grpc.utils import reassemble_chunks
 
 from .grpc_channel_options import channel_options
 
 logger = logging.getLogger(__name__)
-
-def reassemble_chunks_flow_state(chunk_stream):
-    """Reassemble chunks from a stream into a single byte array."""
-    npbytes = bytearray()
-    response_metadata = None
-
-    for chunk in chunk_stream:
-        if response_metadata is None:
-            response_metadata = director_pb2.GetFlowStateResponse()
-            response_metadata.ParseFromString(chunk.chunk)
-        else:
-            npbytes.extend(chunk.chunk)
-    
-    return response_metadata, bytes(npbytes)
 
 class EnvoyDirectorClient:
     """Envoy director client class for envoys.
@@ -334,7 +321,7 @@ class RuntimeDirectorClient:
         response_stream = self.stub.GetFlowState(director_pb2.GetFlowStateRequest())
         
         # Reassemble the chunks
-        response_metadata, flspec_obj = reassemble_chunks_flow_state(response_stream)
+        response_metadata, flspec_obj = reassemble_chunks(response_stream, director_pb2.GetFlowStateResponse)
 
         return response_metadata.completed, flspec_obj
 

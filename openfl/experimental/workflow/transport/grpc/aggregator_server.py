@@ -14,27 +14,9 @@ from grpc import StatusCode, server, ssl_server_credentials
 
 from openfl.experimental.workflow.protocols import aggregator_pb2, aggregator_pb2_grpc
 from openfl.experimental.workflow.transport.grpc.grpc_channel_options import channel_options
+from openfl.experimental.workflow.transport.grpc.utils import reassemble_chunks, stream_large_object
 
 logger = logging.getLogger(__name__)
-
-def reassemble_chunks_task_results(chunk_stream):
-    """Reassemble chunks from a stream into a single byte array."""
-    npbytes = bytearray()
-    request_metadata = None
-
-    for chunk in chunk_stream:
-        if request_metadata is None:
-            try:
-                request_metadata = aggregator_pb2.TaskResultsRequest()
-                request_metadata.ParseFromString(chunk.chunk)
-                print("TaskResultRequest: Parsed request metadata successfully.")
-            except Exception as e:
-                print(f"TaskResultRequest: Error parsing request metadata: {e}")
-                raise
-        else:
-            npbytes.extend(chunk.chunk)
-    
-    return request_metadata, bytes(npbytes) if npbytes else None
 
 def reassemble_chunks_call_checkpoint(request_iterator):
     """Reassemble the chunks from the request iterator.
@@ -193,7 +175,7 @@ class AggregatorGRPCServer(aggregator_pb2_grpc.AggregatorServicer):
             request: The gRPC message request
             context: The gRPC context
         """
-        request_metadata, execution_environment = reassemble_chunks_task_results(request)
+        request_metadata, execution_environment = reassemble_chunks(request, aggregator_pb2.TaskResultsRequest)
 
         self.validate_collaborator(request_metadata, context)
         self.check_request(request_metadata)
@@ -211,8 +193,8 @@ class AggregatorGRPCServer(aggregator_pb2_grpc.AggregatorServicer):
         """Request a job from aggregator.
 
         Args:
-            request: The gRPC message request
-            context: The gRPC context
+            request: The gRPC message request.
+            context: The gRPC context.
         """
         self.validate_collaborator(request, context)
         self.check_request(request)
@@ -220,17 +202,7 @@ class AggregatorGRPCServer(aggregator_pb2_grpc.AggregatorServicer):
 
         rn, f, ee, st, q = self.aggregator.get_tasks(request.header.sender)
 
-        # return aggregator_pb2.GetTasksResponse(
-        #     header=self.get_header(collaborator_name),
-        #     round_number=rn,
-        #     function_name=f,
-        #     execution_environment=ee,
-        #     sleep_time=st,
-        #     quit=q,
-        # )
-        ee_bytes = ee
-        if ee is None:
-            ee_bytes = b''
+        ee_bytes = ee if ee is not None else b''
             
         # Build the GetTasksResponse
         response = aggregator_pb2.GetTasksResponse(
@@ -242,14 +214,8 @@ class AggregatorGRPCServer(aggregator_pb2_grpc.AggregatorServicer):
             quit=q
         )
 
-        # Send the GetTasksResponse metadata first
-        yield aggregator_pb2.GetTasksResponseChunk(chunk=response.SerializeToString())
-
-        # Split the serialized large object into chunks and stream them
-        chunk_size = 2* 1024 * 1024  # 1 MB
-        for i in range(0, len(ee_bytes), chunk_size):
-            chunk = ee_bytes[i:i + chunk_size]
-            yield aggregator_pb2.GetTasksResponseChunk(chunk=chunk)        
+        # Stream the response metadata and serialized large object in chunks
+        return stream_large_object(response, [ee_bytes], aggregator_pb2.Chunk)
 
     def CallCheckpoint(self, request, context):  # NOQA:N802
         """Request aggregator to perform a checkpoint for a given function.

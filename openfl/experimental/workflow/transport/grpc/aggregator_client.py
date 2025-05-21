@@ -12,45 +12,26 @@ import grpc
 
 from openfl.experimental.workflow.protocols import aggregator_pb2, aggregator_pb2_grpc
 from openfl.experimental.workflow.transport.grpc.grpc_channel_options import channel_options
+from openfl.experimental.workflow.transport.grpc.utils import reassemble_chunks, stream_large_object
+
 import dill
 
-def stream_large_object_task_results(request_metadata, large_object, chunk_size = 2*1024*1204):
+def stream_large_object_checkpoint(request_metadata, clone_bytes, function, stream_buffer, chunk_size = 16*1024*1204):
     """Stream the request metadata and serialized large object in chunks."""
-    yield aggregator_pb2.CheckpointRequestChunk(chunk=request_metadata.SerializeToString())
-
-    for i in range(0, len(large_object), chunk_size):
-        yield aggregator_pb2.CheckpointRequestChunk(chunk = large_object[i:i + chunk_size])
-
-def stream_large_object_checkpoint(request_metadata, clone_bytes, function, stream_buffer, chunk_size = 2*1024*1204):
-    """Stream the request metadata and serialized large object in chunks."""
-    yield aggregator_pb2.CheckpointRequestChunk(chunk=request_metadata.SerializeToString())
+    yield aggregator_pb2.Chunk(chunk=request_metadata.SerializeToString())
 
     # Stream the clone_bytes
     for i in range(0, len(clone_bytes), chunk_size):
-        yield aggregator_pb2.CheckpointRequestChunk(chunk=clone_bytes[i:i + chunk_size])
+        yield aggregator_pb2.Chunk(chunk=clone_bytes[i:i + chunk_size])
 
     # Stream the function
     for i in range(0, len(function), chunk_size):
-        yield aggregator_pb2.CheckpointRequestChunk(chunk=function[i:i + chunk_size])
+        yield aggregator_pb2.Chunk(chunk=function[i:i + chunk_size])
 
     # Stream the stream_buffer
     for i in range(0, len(stream_buffer), chunk_size):
-        yield aggregator_pb2.CheckpointRequestChunk(chunk=stream_buffer[i:i + chunk_size])
+        yield aggregator_pb2.Chunk(chunk=stream_buffer[i:i + chunk_size])
         
-def reassemble_chunks_get_task_response(chunk_stream):
-    """Reassemble chunks from a stream into a single byte array."""
-    npbytes = bytearray()
-    response_metadata = None
-
-    for chunk in chunk_stream:
-        if response_metadata is None:
-            response_metadata = aggregator_pb2.GetTasksResponse()
-            response_metadata.ParseFromString(chunk.chunk)
-        else:
-            npbytes.extend(chunk.chunk)
-
-    return response_metadata, bytes(npbytes)
-
 class ConstantBackoff:
     """Constant Backoff policy."""
 
@@ -310,13 +291,6 @@ class AggregatorGRPCClient:
         """Send next function name to aggregator."""
         self._set_header(collaborator_name)
 
-        # request = aggregator_pb2.TaskResultsRequest(
-        #     header=self.header,
-        #     collab_name=collaborator_name,
-        #     round_number=round_number,
-        #     next_step=next_step,
-        #     execution_environment=clone_bytes,
-        # )
         request_metadata = aggregator_pb2.TaskResultsRequest(
                     header=self.header,
                     collab_name=collaborator_name,
@@ -326,7 +300,7 @@ class AggregatorGRPCClient:
                 )
 
         # Stream the request metadata and serialized large object in chunks
-        request_iterator = stream_large_object_task_results(request_metadata, clone_bytes)
+        request_iterator = stream_large_object(request_metadata, [clone_bytes], aggregator_pb2.Chunk)
         response = self.stub.SendTaskResults(request_iterator)
 
         self.validate_response(response, collaborator_name)
@@ -342,7 +316,7 @@ class AggregatorGRPCClient:
 
         # response = self.stub.GetTasks(request)
         response_stream = self.stub.GetTasks(request)
-        response, execution_environment = reassemble_chunks_get_task_response(response_stream)        
+        response, execution_environment = reassemble_chunks(response_stream, aggregator_pb2.GetTasksResponse)        
 
         self.validate_response(response, collaborator_name)
 
