@@ -15,23 +15,7 @@ from openfl.experimental.workflow.transport.grpc.grpc_channel_options import cha
 from openfl.experimental.workflow.transport.grpc.utils import reassemble_chunks, stream_large_object
 
 import dill
-
-def stream_large_object_checkpoint(request_metadata, clone_bytes, function, stream_buffer, chunk_size = 16*1024*1204):
-    """Stream the request metadata and serialized large object in chunks."""
-    yield aggregator_pb2.Chunk(chunk=request_metadata.SerializeToString())
-
-    # Stream the clone_bytes
-    for i in range(0, len(clone_bytes), chunk_size):
-        yield aggregator_pb2.Chunk(chunk=clone_bytes[i:i + chunk_size])
-
-    # Stream the function
-    for i in range(0, len(function), chunk_size):
-        yield aggregator_pb2.Chunk(chunk=function[i:i + chunk_size])
-
-    # Stream the stream_buffer
-    for i in range(0, len(stream_buffer), chunk_size):
-        yield aggregator_pb2.Chunk(chunk=stream_buffer[i:i + chunk_size])
-        
+      
 class ConstantBackoff:
     """Constant Backoff policy."""
 
@@ -337,13 +321,6 @@ class AggregatorGRPCClient:
         """Perform checkpoint for collaborator task."""
         self._set_header(collaborator_name)
 
-        # request = aggregator_pb2.CheckpointRequest(
-        #     header=self.header,
-        #     execution_environment=clone_bytes,
-        #     function=function,
-        #     stream_buffer=stream_buffer,
-        # )
-
         print(f"****** Checkpoint called from: {collaborator_name}")
         print(f"execution_environment_size={len(clone_bytes)/(1024*1024)} MB, function_size={len(function)/(1024*1024)} MB, stream_buffer_size={len(stream_buffer)/(1024*1024)} MB")
         print(f"stream_buffer contents: {dill.loads(stream_buffer)}")
@@ -360,7 +337,8 @@ class AggregatorGRPCClient:
         )
 
         # Create the request iterator that streams the large objects
-        request_iterator = stream_large_object_checkpoint(request_metadata, clone_bytes, function, stream_buffer)
+        large_objects = [clone_bytes, function, stream_buffer]
+        request_iterator = stream_large_object(request_metadata, large_objects, aggregator_pb2.Chunk)
         response = self.stub.CallCheckpoint(request_iterator)
         self.validate_response(response, collaborator_name)
 
