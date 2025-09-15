@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package aggregator;
+
+service Aggregator {
+  rpc GetTasks(GetTasksRequest) returns (stream GetTasksResponseChunk) {}
+}
+
+message MessageHeader {
+  string sender = 1;
+  string receiver = 2;
+}
+
+message GetTasksRequest {
+  MessageHeader header = 1;
+}
+
+message GetTasksResponseChunk {
+  bytes chunk = 1;
+}
+
+message GetTasksResponse {
+  MessageHeader header = 1;
+  int32 round_number = 2;
+  string function_name = 3;
+  bytes ee = 4;
+  int32 sleep_time = 5;
+  bool quit = 6;
+}
